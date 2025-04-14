@@ -1,0 +1,27 @@
+
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Schach im Browser</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>Schach – Wähle deine Seite</h1>
+  <div id="colorChoice">
+    <button onclick="startGame(true)">Ich spiele Weiß</button>
+    <button onclick="startGame(false)">Ich spiele Schwarz</button>
+  </div>
+  <div id="main">
+    <div id="boardWrapper">
+      <div id="topLabels"></div>
+      <div id="leftLabels"></div>
+      <div id="chessboard" class="hidden"></div>
+    </div>
+    <div id="moveList"></div>
+  </div>
+  <p id="status"></p>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+  <script src="logic.js"></script>
+</body>
+</html>
