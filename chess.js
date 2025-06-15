@@ -3,41 +3,41 @@
 */
 
 var chess = (function() {
-	// 2d
+	// 2D-Variablen
 	var oBoardTable = null, aCoords, aFlatSquares, sLstSqColr,
 
-	// both visualizations
+	// Variablen für beide Visualisierungen
 	oBoardsBox, bHumanSide = true,
 
-	// resizing vars
-	nDeskWidth = 512, nDeskHeight = 512, nFlatBVMargin = 12, // theese values are modificable
+	// Größenanpassungsvariablen
+	nDeskWidth = 512, nDeskHeight = 512, nFlatBVMargin = 12, // diese Werte sind anpassbar
 	nFlatBoardSide = nDeskHeight - nFlatBVMargin, nPageX, nPageY, iBoardsBoxX, iBoardsBoxY, nDscrsX, nDscrsY, oFilm, nMinWidth = nMinHeight = 512,
 
-	// history motion picture
+	// Bewegungsbild-Historie
 	nMotionId, bMotion = false, bBoundLock = false, nFrameRate = 1000,
 
-	// DOM
-	oPGNBtn, oMovesSelect, oInfoBox, oCtrlForm, oNtfArea = null, oNtfClsAll = null, bInfoBox = false, aCloseCalls = [], iNtfs = 0, rDeniedTagChrs = /(^\d)|\W/g, sAlgBoxEmpty = "digit your move...", bCtrlIsDown = false,
+	// DOM-Elemente
+	oPGNBtn, oMovesSelect, oInfoBox, oCtrlForm, oNtfArea = null, oNtfClsAll = null, bInfoBox = false, aCloseCalls = [], iNtfs = 0, rDeniedTagChrs = /(^\d)|\W/g, sAlgBoxEmpty = "Zug eingeben...", bCtrlIsDown = false,
 
-	// system
+	// Systemvariablen
 	sMovesList, sPGNHeader, flagHumanBlack, bReady = true, bAI = true, bCheck = false, bGameNotOver = true, lastStart = 0, lastEnd = 0, iHistPointr = -1, aHistory = [], kings = [0, 0], iRound = 1,
 	oGameInfo = {}, oNewInfo = {},
 	etc = {
-		aBoard: [],
-		aThreats: [],
-		nPromotion: 0,
-		bFlatView: false,
-		bBlackSide: false,
-		oFlatVwArea: null,
-		aPiecesLab: null,
-		bKeyCtrl: true,
-		lookAt: function(nGetPosX, nGetPosY) { return(this.aBoard[nGetPosY * 10 + nGetPosX + 21]); },
+		aBoard: [], // Schachbrett-Array
+		aThreats: [], // Bedrohungen
+		bFlatView: false, // Flache Ansicht
+		bBlackSide: false, // Schwarze Seite
+		oFlatVwArea: null, // Flache Ansichtsbereich
+		aPiecesLab: null, // Figurenbezeichnungen
+		bKeyCtrl: true, // Tastatursteuerung
+		lookAt: function(nGetPosX, nGetPosY) { return(this.aBoard[nGetPosY * 10 + nGetPosX + 21]); }, // Schaut auf Position
 		isValidMove: function(nPosX, nPosY, nTargetX, nTargetY) {
+			// Überprüft, ob ein Zug gültig ist
 			var startSq = nPosY * 10 + nPosX + 21, nPiece = this.aBoard[startSq];
 			if (nPiece === 0) { return(true); }
 			var endSq = nTargetY * 10 + nTargetX + 21, nTarget = this.aBoard[endSq], nPieceType = nPiece & 7, flagPcColor = nPiece & 8, bHasMoved = Boolean(nPiece & 16 ^ 16), flagTgColor = nTarget & 8, nWay = 4 - flagPcColor >> 2, nDiffX = nTargetX - nPosX, nDiffY = nTargetY - nPosY;
 			switch (nPieceType) {
-				case 1: // pawn
+				case 1: // Bauer
 					if (((nDiffY | 7) - 3) >> 2 !== nWay) { return(false); }
 					if (nDiffX === 0) {
 						if ((nDiffY + 1 | 2) !== 2 && (nDiffY + 2 | 4) !== 4) { return(false); }
@@ -48,123 +48,39 @@ var chess = (function() {
 						}
 					} else if ((nDiffX + 1 | 2) === 2) {
 						if (nDiffY !== nWay) { return(false); }
-						if ((nTarget < 1 || flagTgColor === flagPcColor) && (/* not en passant: */ nPosY !== 7 + nWay >> 1 || /* if our pawn is not on the opening, or if it is but... */ nPawnStride % 10 - 1 !== nTargetX /* ...not near him another pawn has moved for first time. */)) { return(false); }
+						if (nTarget > 0 && flagTgColor === flagPcColor) { return(false); }
 					} else { return(false); }
 					break;
-				case 3: // knight
-					if (((nDiffY + 1 | 2) - 2 | (nDiffX + 2 | 4) - 2) !== 2 && ((nDiffY + 2 | 4) - 2 | (nDiffX + 1 | 2) - 2) !== 2) { return(false); }
-					if (nTarget > 0 && flagTgColor === flagPcColor) { return(false); }
-					break;
-				case 6: // queen
-					if (nTargetY !== nPosY && nTargetX !== nPosX && Math.abs(nDiffX) !== Math.abs(nDiffY)) { return(false); }
-					break;
-				case 5: // rook
-					if (nTargetY !== nPosY && nTargetX !== nPosX) { return(false); }
-					break;
-				case 4: // bishop
-					if (Math.abs(nDiffX) !== Math.abs(nDiffY)) { return(false); }
-					break;
-			}
-			return(true);
-		},
-		makeSelection: function(nSquareId, bFromSolid) {
-			if (!bReady) { return; }
-			fourBtsLastPc = (etc.aBoard[nSquareId] ^ flagWhoMoved) & 15;
-			if (fourBtsLastPc > 8) {
-				if (etc.bFlatView) {
-					if (nFrstFocus) { squareFocus(nFrstFocus, false); }
-					if (!bFromSolid) { squareFocus(nSquareId, true); }
-				}
-				nFrstFocus = nSquareId;
-			}
-			else if (nFrstFocus && fourBtsLastPc < 9) {
-				if (iHistPointr + 1 < aHistory.length && etc.isValidMove(nFrstFocus % 10 - 1, (nFrstFocus - nFrstFocus % 10) / 10 - 2, nSquareId % 10 - 1, (nSquareId - nSquareId % 10) / 10 - 2)) {
-					if (confirm("Moving now all subsequent moves will be lost. Are you sure?")) { trimHistory(); }
-					else { return; }
-				}
-				nScndFocus = nSquareId;
-				fourBtsLastPc = etc.aBoard[nFrstFocus] & 15;
-				if ((fourBtsLastPc & 7) === 1 & (nScndFocus < 29 | nScndFocus > 90)) { fourBtsLastPc = 14 - etc.nPromotion ^ flagWhoMoved; }
-				consider(0, 0, 0, 21, nPawnStride, 1);
-				if (etc.bFlatView) {
-					squareFocus(nFrstFocus, false);
-					writeFlatPieces();
-				}
-				case 2: // king
+				case 2: // König
 					var ourRook;
 					if ((nDiffY === 0 || (nDiffY + 1 | 2) === 2) && (nDiffX === 0 || (nDiffX + 1 | 2) === 2)) {
 						if (nTarget > 0 && flagTgColor === flagPcColor) { return(false); }
-					} else if (ourRook = this.lookAt(30 - nDiffX >> 2 & 7, nTargetY), (nDiffX + 2 | 4) === 4 && nDiffY === 0 && !bCheck && !bHasMoved && ourRook > 0 && Boolean(ourRook & 16)) { // castling
+					} else if (ourRook = this.lookAt(30 - nDiffX >> 2 & 7, nTargetY), (nDiffX + 2 | 4) === 4 && nDiffY === 0 && !bCheck && !bHasMoved && ourRook > 0 && Boolean(ourRook & 16)) { // Rochade
 						for (var passX = nDiffX * 3 + 14 >> 2; passX < nDiffX * 3 + 22 >> 2; passX++) { if (this.lookAt(passX, nTargetY) > 0 || isThreatened(passX, nTargetY, nTargetY / 7 << 3 ^ 1)) { return(false); } }
 						if (nDiffX + 2 === 0 && this.aBoard[nTargetY * 10 + 22] > 0) { return(false); }
 					} else { return(false); }
 					break;
-			}
-			if (nPieceType === 5 || nPieceType === 6) {
-				if (nTargetY === nPosY) {
-					if (nPosX < nTargetX) {
-						for (var iOrthogX = nPosX + 1; iOrthogX < nTargetX; iOrthogX++) { if (this.lookAt(iOrthogX, nTargetY) > 0) { return(false); } }
-					} else {
-						for (var iOrthogX = nPosX - 1; iOrthogX > nTargetX; iOrthogX--) { if (this.lookAt(iOrthogX, nTargetY) > 0) { return(false); } }
-					}
-				}
-				if (nTargetX === nPosX) {
-					if (nPosY < nTargetY) {
-						for (var iOrthogY = nPosY + 1; iOrthogY < nTargetY; iOrthogY++) { if (this.lookAt(nTargetX, iOrthogY) > 0) { return(false); } }
-					} else {
-						for (var iOrthogY = nPosY - 1; iOrthogY > nTargetY; iOrthogY--) { if (this.lookAt(nTargetX, iOrthogY) > 0) { return(false); } }
-					}
-				}
-				if (nTarget > 0 && flagTgColor === flagPcColor) { return(false); }
-			}
-			if (nPieceType === 4 || nPieceType === 6) {
-				if (nTargetY > nPosY) {
-					var iObliqueY = nPosY + 1;
-					if (nPosX < nTargetX) {
-						for (var iObliqueX = nPosX + 1; iObliqueX < nTargetX; iObliqueX++) {
-							if (this.lookAt(iObliqueX, iObliqueY) > 0) { return(false); }
-							iObliqueY++;
-						}
-					} else {
-						for (var iObliqueX = nPosX - 1; iObliqueX > nTargetX; iObliqueX--) {
-							if (this.lookAt(iObliqueX, iObliqueY) > 0) { return(false); }
-							iObliqueY++;
-						}
-					}
-				}
-				if (nTargetY < nPosY) {
-					var iObliqueY = nPosY - 1;
-					if (nPosX < nTargetX) {
-						for (var iObliqueX = nPosX + 1; iObliqueX < nTargetX; iObliqueX++) {
-							if (this.lookAt(iObliqueX, iObliqueY) > 0) { return(false); }
-							iObliqueY--;
-						}
-					} else {
-						for (var iObliqueX = nPosX - 1; iObliqueX > nTargetX; iObliqueX--) {
-							if (this.lookAt(iObliqueX, iObliqueY) > 0) { return(false); }
-							iObliqueY--;
-						}
-					}
-				}
-				if (nTarget > 0 && flagTgColor === flagPcColor) { return(false); }
-			}
-			/* Although it might seem impossible that the target is the opponent's king, this condition is needed for certain hypothesis. */
-			if (nTarget + 6 & 7) {
-				var bKingInCheck = false, oKing = nPieceType === 2 ? endSq : kings[flagPcColor >> 3];
-				this.aBoard[startSq] = 0;
-				this.aBoard[endSq] = nPiece;
-				if (isThreatened(oKing % 10 - 1, (oKing - oKing % 10) / 10 - 2, flagPcColor ^ 8)) { bKingInCheck = true; }
-				this.aBoard[startSq] = nPiece;
-				this.aBoard[endSq] = nTarget;
-				if (bKingInCheck) { return(false); }
+				case 3: // Springer
+					if (((nDiffY + 1 | 2) - 2 | (nDiffX + 2 | 4) - 2) !== 2 && ((nDiffY + 2 | 4) - 2 | (nDiffX + 1 | 2) - 2) !== 2) { return(false); }
+					if (nTarget > 0 && flagTgColor === flagPcColor) { return(false); }
+					break;
+				case 4: // Läufer
+					if (Math.abs(nDiffX) !== Math.abs(nDiffY)) { return(false); }
+					break;
+				case 5: // Turm
+					if (nTargetY !== nPosY && nTargetX !== nPosX) { return(false); }
+					break;
+				case 6: // Dame
+					if (nTargetY !== nPosY && nTargetX !== nPosX && Math.abs(nDiffX) !== Math.abs(nDiffY)) { return(false); }
+					break;
 			}
 			return(true);
 		},
 		makeSelection: function(nSquareId, bFromSolid) {
+			// Macht eine Auswahl auf dem Brett
 			if (!bReady) { return; }
 			fourBtsLastPc = (etc.aBoard[nSquareId] ^ flagWhoMoved) & 15;
 			if (fourBtsLastPc > 8) {
-				if (etc.bSolidView) { oSolidBoard.selectPiece(nSquareId, true, bFromSolid); }
 				if (etc.bFlatView) {
 					if (nFrstFocus) { squareFocus(nFrstFocus, false); }
 					if (!bFromSolid) { squareFocus(nSquareId, true); }
@@ -173,24 +89,83 @@ var chess = (function() {
 			}
 			else if (nFrstFocus && fourBtsLastPc < 9) {
 				if (iHistPointr + 1 < aHistory.length && etc.isValidMove(nFrstFocus % 10 - 1, (nFrstFocus - nFrstFocus % 10) / 10 - 2, nSquareId % 10 - 1, (nSquareId - nSquareId % 10) / 10 - 2)) {
-					if (confirm("Moving now all subsequent moves will be lost. Are you sure?")) { trimHistory(); }
+					if (confirm("Wenn Sie jetzt ziehen, gehen alle nachfolgenden Züge verloren. Sind Sie sicher?")) { trimHistory(); }
 					else { return; }
 				}
 				nScndFocus = nSquareId;
 				fourBtsLastPc = etc.aBoard[nFrstFocus] & 15;
-				if ((fourBtsLastPc & 7) === 1 & (nScndFocus < 29 | nScndFocus > 90)) { fourBtsLastPc = 14 - etc.nPromotion ^ flagWhoMoved; }
 				consider(0, 0, 0, 21, nPawnStride, 1);
-				if (etc.bSolidView) { oSolidBoard.selectPiece(nSquareId, false, bFromSolid); }
 				if (etc.bFlatView) {
 					squareFocus(nFrstFocus, false);
 					writeFlatPieces();
 				}
-				if (bAI && flagWhoMoved === flagHumanBlack && fourBtsLastPc - flagHumanBlack < 9) {
-					bReady = false;
-					window.setTimeout(engineMove, 250);
+			}
+		},
+		checkPromotion: function(start, end) {
+			// Überprüft Bauer-Umwandlung
+			const a = this.convertCell(end);
+			if ((this.aBoard[start] & 7) !== 1) { // Bauer
+				return false;
+			}
+			if ((this.aBoard[start] & 8) === 0 && a[1] === 0) { // weißer Bauer
+				this.aBoard[end] = this.choosePromotion() | 0;
+			} else if (a[1] === 7) { // schwarzer Bauer
+				this.aBoard[end] = this.choosePromotion() | 8;
+			}
+		},
+		choosePromotion: function() {
+			// Wählt die Umwandlungsfigur
+			let pieces = { q: 5, r: 4, b: 3, k: 2 }; // Dame, Turm, Läufer, Springer
+			let piece;
+			for (let i = 0; i < 1; i--) {
+				piece = prompt(
+					`Wählen Sie die Umwandlungsfigur:
+
+					q - Dame
+					r - Turm
+					b - Läufer
+					k - Springer`);
+
+				if (!pieces[piece]) {
+					alert('Sie müssen eine der oben genannten Figuren durch Eingabe des entsprechenden Buchstabens auswählen.');
+				} else break;
+			}
+			return pieces[piece];
+		},
+		checkAmpasant: function(start, endS) {
+			// Überprüft en passant
+			const end = parseInt(endS, 10);
+			if ((this.aBoard[start] & 7) === 1 && end === this.ampasant) { // Bauer
+				if ((this.aBoard[start] & 8) === 0) { // weiß
+					this.aBoard[end + 8] = 0;
+				} else { // schwarz
+					this.aBoard[end - 8] = 0;
 				}
 			}
-		}
+			if ((this.aBoard[start] & 7) === 1 && Math.abs(start - end) > 8) {
+				this.ampasant = this.setAmpasant(start);
+			} else {
+				this.ampasant = null;
+			}
+		},
+		setAmpasant: function(idS) {
+			// Setzt en passant Ziel
+			const id = parseInt(idS, 10);
+			return (this.aBoard[id] & 8) === 0 ? id - 8 : id + 8;
+		},
+		firstPawnMove: function(id, color) {
+			// Überprüft ersten Bauerzug
+			const a = this.convertCell(id);
+			if (color === 0) { // weiß
+				return a[1] === 6;
+			}
+			return a[1] === 1;
+		},
+		convertCell: function(id) {
+			// Konvertiert Zellen-ID in Koordinaten
+			return [id % 8, Math.floor(id / 8)];
+		},
+		nPromotion: null,  // En passant Ziel
 	};
 
 	function newPGNHeader() {
@@ -281,14 +256,9 @@ var chess = (function() {
 	*		[bits 25 to 29]		[bits 20 to 24]		[bits 15 to 19]		[bits 8 to 14]		[bits 1 to 7]
 	*/
 	function writeHistory(bGraphRendrng, nStartPt, nEndPt, nPieceId, nTarget, nPromo) {
-		var nMoves = aHistory.length >> 1, sPromoAlg = new String(), nEndPosX = nEndPt % 10 - 1, nEndPosY = (nEndPt - nEndPt % 10) / 10 - 2, nStartPosX = nStartPt % 10 - 1, nStartPosY = (nStartPt - nStartPt % 10) / 10 - 2, iVerifyX, iVerifyY, disambiguateX = false, disambiguateY = false, signedNumber = nStartPt | nEndPt << 7 | nPieceId << 14 | nTarget << 19, vPromo = false, bWriteCapture = ((nPieceId & 7) === 1 && (nStartPt + nEndPt & 1) && nTarget === 0 /* en passant */) || nTarget > 0, colorFlag = nPieceId & 8;
+		var nMoves = aHistory.length >> 1, sPromoAlg = new String(), nEndPosX = nEndPt % 10 - 1, nEndPosY = (nEndPt - nEndPt % 10) / 10 - 2, nStartPosX = nStartPt % 10 - 1, nStartPosY = (nStartPt - nStartPt % 10) / 10 - 2, iVerifyX, iVerifyY, disambiguateX = false, disambiguateY = false, signedNumber = nStartPt | nEndPt << 7 | nPieceId << 14 | nTarget << 19, vPromo = false, bWriteCapture = nTarget > 0, colorFlag = nPieceId & 8;
 		lastStart = nStartPt;
 		lastEnd = nEndPt;
-		if ((nEndPosY + 1 | 9) === 9 /* true in case of nEndPosY === -1! */ && (nPieceId & 7) === 1) {
-			vPromo = nPromo || (22 - etc.nPromotion ^ colorFlag);
-			signedNumber |= vPromo << 24;
-			sPromoAlg = "=" + "NBRQ".charAt(vPromo - 3 & 7);
-		}
 		aHistory.push(signedNumber);
 		if ((nPieceId & 7) === 2) { kings[colorFlag >> 3] = nEndPt; }
 		for (var iVerifySq = 21; iVerifySq < 99; iVerifySq += iVerifySq % 10 < 8 ? 1 : 3) {
@@ -307,7 +277,7 @@ var chess = (function() {
 		}
 		sMovesList += (colorFlag ? " " : (nMoves ? "¶" : "") + String(nMoves + 1) + ". ");
 		if ((nPieceId & 7) === 2 && (nEndPt - nStartPt + 2 | 4) === 4) { sMovesList += "O-O" + (nStartPt - nEndPt === 2 ? "-O" : ""); }
-		else { sMovesList += ((nPieceId & 7) !== 1 ? "KNBRQ".charAt(nPieceId - 2 & 7) : "") + (((nPieceId & 7) === 1 && bWriteCapture) || disambiguateX ? String.fromCharCode(96 + nStartPt % 10) : "") + (disambiguateY ? String(nStartPosY + 1) : "") + (bWriteCapture ? "x" : "") + String.fromCharCode(96 + nEndPt % 10) + String(nEndPosY + 1) + sPromoAlg + (bCheck ? "+" : ""); }
+		else { sMovesList += ((nPieceId & 7) !== 1 ? "KNBRQ".charAt(nPieceId - 2 & 7) : "") + (((nPieceId & 7) === 1 && bWriteCapture) || disambiguateX ? String.fromCharCode(96 + nStartPt % 10) : "") + (disambiguateY ? String(nStartPosY + 1) : "") + (bWriteCapture ? "x" : "") + String.fromCharCode(96 + nEndPt % 10) + String(nEndPosY + 1) + (bCheck ? "+" : ""); }
 
 		oMovesSelect.innerHTML = "<option>Game start<\/option><option>" + sMovesList.replace(/¶/g,"<\/option><option>") + "<\/option>";
 		oMovesSelect.selectedIndex = oMovesSelect.length - 1;
@@ -562,6 +532,20 @@ var chess = (function() {
 				writeFlatPieces();
 			}
 		}
+		
+		// Nach dem Verschieben der Figur:
+		if ((etc.aBoard[nScndFocus] & 7) === 1) { // Wenn es ein Bauer ist
+			etc.checkPromotion(nScndFocus, nScndFocus);
+		}
+		
+		// En Passant schlagen
+		if (nScndFocus === etc.ampasant) {
+			var nCapturedPawn = nScndFocus + (flagWhoMoved ? -10 : 10);
+			etc.aBoard[nCapturedPawn] = 0;
+		}
+		
+		// Reset En Passant
+		etc.ampasant = null;
 	}
 
 	// Flat chessboard functions

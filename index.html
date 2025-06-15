@@ -279,14 +279,12 @@
         }
         
         .timer-display {
-            font-size: 28px;
-            font-weight: 700;
-            padding: 15px 25px;
-            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
-            color: white;
+            font-size: 1.8em;
+            font-weight: bold;
+            padding: 15px 30px;
             border-radius: var(--border-radius);
-            min-width: 120px;
-            text-align: center;
+            background-color: var(--primary-color);
+            color: white;
             box-shadow: var(--box-shadow);
             transition: all var(--transition-speed);
         }
@@ -304,11 +302,9 @@
         }
         
         .player-timer .label {
-            font-size: 16px;
+            font-size: 1.1em;
             font-weight: 600;
-            color: var(--text-color);
-            text-transform: uppercase;
-            letter-spacing: 1px;
+            color: white;
         }
         
         @keyframes fadeIn {
@@ -986,6 +982,51 @@
         .game-container.fullscreen-active .player-timer .label {
             font-size: 1.2em !important;
         }
+
+        .promotion-dialog {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--box-shadow);
+            z-index: 1000;
+        }
+
+        .promotion-options {
+            display: flex;
+            gap: 10px;
+        }
+
+        .promotion-piece {
+            width: 50px;
+            height: 50px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 40px;
+            cursor: pointer;
+            border: 2px solid var(--primary-color);
+            border-radius: var(--border-radius);
+            transition: all var(--transition-speed);
+        }
+
+        .promotion-piece:hover {
+            transform: scale(1.1);
+            border-color: var(--secondary-color);
+        }
+
+        /* KI-Zug-Markierung */
+        .ai-move {
+            box-shadow: 0 0 0 4px #e74c3c !important;
+            background-color: #ffcccc !important;
+        }
+
+        .last-ai-move {
+            background-color: rgba(255, 0, 0, 0.3) !important;
+        }
     </style>
 </head>
 <body>
@@ -1089,6 +1130,8 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <script src="chess.js"></script>
+    <script src="chess2player.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             const chessboard = document.getElementById('chessboard');
@@ -1526,9 +1569,6 @@
 
                 if (Math.abs(toCol - fromCol) === 1 && toRow === fromRow + direction) {
                     if (isCapture) return true;
-                    if (lastPawnDoubleMove && 
-                        lastPawnDoubleMove[0] === fromRow && 
-                        lastPawnDoubleMove[1] === toCol) return true;
                 }
 
                 return false;
@@ -1599,6 +1639,61 @@
                 
                 return true;
             }
+            
+            // === BEGIN: Pawn Promotion Dialog ===
+            function showPromotionDialog(color, callback) {
+                const dialog = document.createElement('div');
+                dialog.className = 'promotion-dialog';
+                dialog.innerHTML = `
+                    <div class="promotion-options">
+                        <div class="promotion-piece" data-piece="queen">${pieces[color]['queen']}</div>
+                        <div class="promotion-piece" data-piece="rook">${pieces[color]['rook']}</div>
+                        <div class="promotion-piece" data-piece="bishop">${pieces[color]['bishop']}</div>
+                        <div class="promotion-piece" data-piece="knight">${pieces[color]['knight']}</div>
+                    </div>
+                `;
+                document.body.appendChild(dialog);
+                dialog.querySelectorAll('.promotion-piece').forEach(piece => {
+                    piece.addEventListener('click', () => {
+                        const selectedPiece = piece.dataset.piece;
+                        dialog.remove();
+                        callback(selectedPiece);
+                        // Trigger AI move after promotion if playing against computer
+                        if (playAgainstComputer.checked && gameInProgress && currentPlayer !== playerColor) {
+                            setTimeout(makeComputerMove, 500);
+                        }
+                    });
+                });
+            }
+            // === END: Pawn Promotion Dialog ===
+
+            // ... existing code ...
+            // Patch movePiece for promotion dialog
+            const origMovePiece = movePiece;
+            movePiece = function(from, to) {
+                const piece = from.dataset.piece;
+                const [color, type] = piece.split('-');
+                const fromRow = parseInt(from.dataset.row);
+                const toRow = parseInt(to.dataset.row);
+                // Prüfe auf Bauernumwandlung
+                if (type === 'pawn' && (toRow === 0 || toRow === 7)) {
+                    showPromotionDialog(color, function(selectedPiece) {
+                        to.innerHTML = pieces[color][selectedPiece];
+                        to.dataset.piece = `${color}-${selectedPiece}`;
+                        from.innerHTML = '';
+                        delete from.dataset.piece;
+                        addMoveToHistory(color, selectedPiece, fromRow, parseInt(from.dataset.col), toRow, parseInt(to.dataset.col), !!to.dataset.piece);
+                        const nextPlayer = currentPlayer === 'white' ? 'black' : 'white';
+                        currentPlayer = nextPlayer;
+                        updateMessage();
+                        startTimer();
+                    });
+                    return;
+                }
+                // Standardverhalten für alle anderen Züge
+                origMovePiece(from, to);
+            }
+            // ... existing code ...
             
             function movePiece(from, to) {
                 const piece = from.dataset.piece;
@@ -1791,154 +1886,165 @@
             
             // Computer-Zug (verbesserte Version)
             function makeComputerMove() {
-                // Sicherstellen, dass der Computer dran ist und das Spiel läuft
                 if (!playAgainstComputer.checked || !gameInProgress || currentPlayer === playerColor) return;
 
                 const computerColor = playerColor === 'white' ? 'black' : 'white';
                 const opponentColor = playerColor;
                 
-                // Bewertungen für Figuren - Höhere Werte für bessere Fokussierung auf starke Figuren
+                // Erweiterte Bewertungen für Figuren
                 const pieceValues = {
                     'pawn': 10,
-                    'knight': 35,  // Erhöht
-                    'bishop': 35,  // Erhöht
-                    'rook': 60,    // Erhöht
-                    'queen': 120,  // Stark erhöht
+                    'knight': 35,
+                    'bishop': 35,
+                    'rook': 60,
+                    'queen': 120,
                     'king': 900
                 };
-                
-                // Suche alle möglichen Züge
+
+                // Positionelle Bewertungen für Figuren
+                const piecePositionScores = {
+                    'pawn': [
+                        [0, 0, 0, 0, 0, 0, 0, 0],
+                        [50, 50, 50, 50, 50, 50, 50, 50],
+                        [10, 10, 20, 30, 30, 20, 10, 10],
+                        [5, 5, 10, 25, 25, 10, 5, 5],
+                        [0, 0, 0, 20, 20, 0, 0, 0],
+                        [5, -5, -10, 0, 0, -10, -5, 5],
+                        [5, 10, 10, -20, -20, 10, 10, 5],
+                        [0, 0, 0, 0, 0, 0, 0, 0]
+                    ],
+                    'knight': [
+                        [-50, -40, -30, -30, -30, -30, -40, -50],
+                        [-40, -20, 0, 0, 0, 0, -20, -40],
+                        [-30, 0, 10, 15, 15, 10, 0, -30],
+                        [-30, 5, 15, 20, 20, 15, 5, -30],
+                        [-30, 0, 15, 20, 20, 15, 0, -30],
+                        [-30, 5, 10, 15, 15, 10, 5, -30],
+                        [-40, -20, 0, 5, 5, 0, -20, -40],
+                        [-50, -40, -30, -30, -30, -30, -40, -50]
+                    ],
+                    'bishop': [
+                        [-20, -10, -10, -10, -10, -10, -10, -20],
+                        [-10, 0, 0, 0, 0, 0, 0, -10],
+                        [-10, 0, 5, 10, 10, 5, 0, -10],
+                        [-10, 5, 5, 10, 10, 5, 5, -10],
+                        [-10, 0, 10, 10, 10, 10, 0, -10],
+                        [-10, 10, 10, 10, 10, 10, 10, -10],
+                        [-10, 5, 0, 0, 0, 0, 5, -10],
+                        [-20, -10, -10, -10, -10, -10, -10, -20]
+                    ],
+                    'rook': [
+                        [0, 0, 0, 0, 0, 0, 0, 0],
+                        [5, 10, 10, 10, 10, 10, 10, 5],
+                        [-5, 0, 0, 0, 0, 0, 0, -5],
+                        [-5, 0, 0, 0, 0, 0, 0, -5],
+                        [-5, 0, 0, 0, 0, 0, 0, -5],
+                        [-5, 0, 0, 0, 0, 0, 0, -5],
+                        [-5, 0, 0, 0, 0, 0, 0, -5],
+                        [0, 0, 0, 5, 5, 0, 0, 0]
+                    ],
+                    'queen': [
+                        [-20, -10, -10, -5, -5, -10, -10, -20],
+                        [-10, 0, 0, 0, 0, 0, 0, -10],
+                        [-10, 0, 5, 5, 5, 5, 0, -10],
+                        [-5, 0, 5, 5, 5, 5, 0, -5],
+                        [0, 0, 5, 5, 5, 5, 0, -5],
+                        [-10, 5, 5, 5, 5, 5, 0, -10],
+                        [-10, 0, 5, 0, 0, 0, 0, -10],
+                        [-20, -10, -10, -5, -5, -10, -10, -20]
+                    ],
+                    'king': [
+                        [-30, -40, -40, -50, -50, -40, -40, -30],
+                        [-30, -40, -40, -50, -50, -40, -40, -30],
+                        [-30, -40, -40, -50, -50, -40, -40, -30],
+                        [-30, -40, -40, -50, -50, -40, -40, -30],
+                        [-20, -30, -30, -40, -40, -30, -30, -20],
+                        [-10, -20, -20, -20, -20, -20, -20, -10],
+                        [20, 20, 0, 0, 0, 0, 20, 20],
+                        [20, 30, 10, 0, 0, 10, 30, 20]
+                    ]
+                };
+
+                // Sammle alle möglichen Züge
                 const possibleMoves = [];
                 
                 // 1. Finde alle Computer-Figuren
-                for (let fromRow = 0; fromRow < 8; fromRow++) {
-                    for (let fromCol = 0; fromCol < 8; fromCol++) {
-                        const fromSquare = board[fromRow][fromCol];
-                        const fromPiece = fromSquare.dataset.piece;
-                        
-                        if (fromPiece && fromPiece.startsWith(computerColor)) {
-                            // 2. Für jede Figur, finde alle möglichen Zielfelder
-                            for (let toRow = 0; toRow < 8; toRow++) {
-                                for (let toCol = 0; toCol < 8; toCol++) {
-                                    const toSquare = board[toRow][toCol];
-                                    
-                                    if (isValidMove(fromSquare, toSquare)) {
-                                        // Bewerte den Zug
-                                        const [fromColor, fromType] = fromPiece.split('-');
-                                        const toPiece = toSquare.dataset.piece;
+                for (let i = 0; i < 8; i++) {
+                    for (let j = 0; j < 8; j++) {
+                        const square = board[i][j];
+                        const piece = square.dataset.piece;
+                        if (piece && piece.startsWith(computerColor)) {
+                            // 2. Finde alle gültigen Züge für jede Figur
+                            for (let x = 0; x < 8; x++) {
+                                for (let y = 0; y < 8; y++) {
+                                    const targetSquare = board[x][y];
+                                    if (isValidMove(square, targetSquare)) {
+                                        // 3. Bewerte jeden Zug
+                                        let score = 0;
                                         
-                                        // Basisbewertung
-                                        let moveScore = 0;
-                                        
-                                        // Bonus für das Schlagen gegnerischer Figuren - Stark erhöht
-                                        if (toPiece) {
-                                            const [toColor, toType] = toPiece.split('-');
-                                            moveScore += pieceValues[toType] * 3;  // Stärkere Gewichtung
-                                            
-                                            // Extra Bonus für das Schlagen von Dame, Turm oder Läufer/Springer
-                                            if (toType === 'queen') moveScore += 50;
-                                            if (toType === 'rook') moveScore += 30;
-                                            if (toType === 'bishop' || toType === 'knight') moveScore += 15;
+                                        // Basis-Bewertung für geschlagene Figuren
+                                        if (targetSquare.dataset.piece) {
+                                            const capturedPiece = targetSquare.dataset.piece.split('-')[1];
+                                            score += pieceValues[capturedPiece] * 2;
+                                        }
+
+                                        // Positionelle Bewertung
+                                        const pieceType = piece.split('-')[1];
+                                        const positionScore = piecePositionScores[pieceType];
+                                        if (positionScore) {
+                                            const row = computerColor === 'white' ? 7 - x : x;
+                                            const col = computerColor === 'white' ? y : 7 - y;
+                                            score += positionScore[row][col];
                                         }
                                         
-                                        // Einfache Zukunftsanalyse (ein Zug vorausschauen)
-                                        const lookAhead = () => {
-                                            // Simuliere den aktuellen Zug
-                                            const originalFromPiece = fromSquare.dataset.piece;
-                                            const originalToPiece = toSquare.dataset.piece;
-                                            
-                                            toSquare.dataset.piece = fromSquare.dataset.piece;
-                                            delete fromSquare.dataset.piece;
-                                            
-                                            // Bewerte die Position nach unserem Zug
-                                            let futureScore = 0;
-                                            
-                                            // Prüfe auf mögliche Schläge durch Gegner im nächsten Zug
-                                            for (let r = 0; r < 8; r++) {
-                                                for (let c = 0; c < 8; c++) {
-                                                    const checkSquare = board[r][c];
-                                                    if (checkSquare.dataset.piece && 
-                                                        checkSquare.dataset.piece.startsWith(computerColor)) {
-                                                        // Wenn eine unserer Figuren geschlagen werden kann
-                                                        if (isSquareAttacked(r, c, computerColor)) {
-                                                            const [, typeThreatened] = checkSquare.dataset.piece.split('-');
-                                                            futureScore -= pieceValues[typeThreatened] / 2;
-                                                        }
+                                        // Bonus für Kontrolle des Zentrums
+                                        if ((x === 3 || x === 4) && (y === 3 || y === 4)) {
+                                            score += 15;
+                                        }
+                                        
+                                        // Bonus für Entwicklung der Figuren
+                                        if (piece.endsWith('knight') || piece.endsWith('bishop')) {
+                                            if (i !== 0) score += 10;
+                                        }
+                                        
+                                        // Bonus für Sicherheit des Königs
+                                        if (piece.endsWith('king')) {
+                                            if (i === 0) score += 30;
+                                            if (j === 3 || j === 4) score += 15;
+                                        }
+
+                                        // Bonus für Bauernstruktur
+                                        if (piece.endsWith('pawn')) {
+                                            // Bonus für verbundene Bauern
+                                            for (let dx = -1; dx <= 1; dx++) {
+                                                const newCol = j + dx;
+                                                if (newCol >= 0 && newCol < 8 && dx !== 0) {
+                                                    const adjacentSquare = board[i][newCol];
+                                                    if (adjacentSquare.dataset.piece && 
+                                                        adjacentSquare.dataset.piece === piece) {
+                                                        score += 10;
                                                     }
                                                 }
                                             }
-                                            
-                                            // Mache den Zug rückgängig
-                                            fromSquare.dataset.piece = originalFromPiece;
-                                            if (originalToPiece) {
-                                                toSquare.dataset.piece = originalToPiece;
-                                            } else {
-                                                delete toSquare.dataset.piece;
-                                            }
-                                            
-                                            return futureScore;
-                                        };
-                                        
-                                        // Füge die Zukunftsanalyse zur Bewertung hinzu
-                                        moveScore += lookAhead();
-                                        
-                                        // Bonus für Kontrolle des Zentrums (Felder e4, d4, e5, d5)
-                                        const centerRows = [3, 4];
-                                        const centerCols = [3, 4];
-                                        if (centerRows.includes(toRow) && centerCols.includes(toCol)) {
-                                            moveScore += 5;
+                                            // Bonus für vorgerückte Bauern
+                                            const advancement = computerColor === 'white' ? 7 - i : i;
+                                            score += advancement * 5;
                                         }
                                         
-                                        // Malus für das Bewegen wertvoller Figuren in Gefahr
-                                        const originalFromPiece = fromSquare.dataset.piece;
-                                        const originalToPiece = toSquare.dataset.piece;
-                                        
-                                        // Simuliere den Zug
-                                        toSquare.dataset.piece = fromSquare.dataset.piece;
-                                        delete fromSquare.dataset.piece;
-                                        
-                                        // Prüfe, ob die Figur nach dem Zug geschlagen werden kann
-                                        if (isSquareAttacked(toRow, toCol, computerColor)) {
-                                            moveScore -= pieceValues[fromType] * 2;  // Stärkerer Malus
+                                        // Strafen für gefährliche Züge
+                                        if (wouldMoveExposeCheck(square, targetSquare, computerColor)) {
+                                            score -= 1000;
+                                        }
+
+                                        // Strafen für Figuren in Gefahr
+                                        if (isSquareAttacked(x, y, opponentColor)) {
+                                            score -= pieceValues[pieceType] / 2;
                                         }
                                         
-                                        // Mache den Zug rückgängig
-                                        fromSquare.dataset.piece = originalFromPiece;
-                                        if (originalToPiece) {
-                                            toSquare.dataset.piece = originalToPiece;
-                                        } else {
-                                            delete toSquare.dataset.piece;
-                                        }
-                                        
-                                        // Bonus für Entwicklung in der Eröffnung
-                                        if (moveCount < 10) {
-                                            // Entwicklung der Figuren in der Eröffnung
-                                            if (fromType === 'knight' || fromType === 'bishop') {
-                                                // Bonus für das Bewegen der Figuren aus der Startposition
-                                                const startRow = computerColor === 'white' ? 7 : 0;
-                                                if (fromRow === startRow) {
-                                                    moveScore += 8;
-                                                }
-                                            }
-                                        }
-                                        
-                                        // Bonus für Bauernvorstöße
-                                        if (fromType === 'pawn') {
-                                            const promotionRow = computerColor === 'white' ? 0 : 7;
-                                            const distanceToPromotion = Math.abs(toRow - promotionRow);
-                                            moveScore += (7 - distanceToPromotion);
-                                            
-                                            // Bonus für diagonale Schlagzüge mit Bauern
-                                            if (Math.abs(fromCol - toCol) === 1 && toPiece) {
-                                                moveScore += 8;  // Erhöht
-                                            }
-                                        }
-                                        
-                                        // Speichere den Zug mit seiner Bewertung
                                         possibleMoves.push({
-                                            from: fromSquare,
-                                            to: toSquare,
-                                            score: moveScore
+                                            from: square,
+                                            to: targetSquare,
+                                            score: score
                                         });
                                     }
                                 }
@@ -1947,26 +2053,28 @@
                     }
                 }
                 
-                // Keine möglichen Züge? Das sollte nicht passieren, da wir schon vorher auf Matt/Patt prüfen
-                if (possibleMoves.length === 0) return;
-                
-                // Sortiere die Züge nach Bewertung (beste zuerst)
+                // Sortiere Züge nach Bewertung
                 possibleMoves.sort((a, b) => b.score - a.score);
                 
-                // 80% der Zeit den besten Zug wählen, 20% der Zeit einen zufälligen aus den Top 3
+                // Wähle den besten Zug
                 let selectedMove;
-                if (Math.random() < 0.8 || possibleMoves.length === 1) {
-                    // Besten Zug wählen
-                    selectedMove = possibleMoves[0];
-                } else {
-                    // Zufälligen Zug aus den Top 3 (oder weniger) wählen
-                    const topCount = Math.min(3, possibleMoves.length);
-                    const randomIndex = Math.floor(Math.random() * topCount);
-                    selectedMove = possibleMoves[randomIndex];
+                if (possibleMoves.length > 0) {
+                    // Wähle zufällig einen der besten 3 Züge
+                    const topMoves = possibleMoves.slice(0, Math.min(3, possibleMoves.length));
+                    selectedMove = topMoves[Math.floor(Math.random() * topMoves.length)];
                 }
                 
-                // Führe den ausgewählten Zug aus
-                movePiece(selectedMove.from, selectedMove.to);
+                if (selectedMove) {
+                    // Führe den Zug aus
+                    movePiece(selectedMove.from, selectedMove.to);
+                    
+                    // Markiere beide Felder
+                    document.querySelectorAll('.last-ai-move').forEach(el => {
+                        el.classList.remove('last-ai-move');
+                    });
+                    selectedMove.from.classList.add('last-ai-move');
+                    selectedMove.to.classList.add('last-ai-move');
+                }
             }
             
             // Aktualisiert die Nachricht
@@ -2547,6 +2655,282 @@
                 };
                 initBoard(); // Initialisiert das Spiel mit den im DOM gesetzten Werten
             }
+
+            // ... existing code ...
+            // === BEGIN: En Passant Support ===
+            let enPassantTarget = null;
+            // === END: En Passant Support ===
+
+            // ... existing code ...
+            // Patch isPawnMove for en passant
+            const origIsPawnMove = isPawnMove;
+            isPawnMove = function(fromRow, fromCol, toRow, toCol, color, isCapture) {
+                const direction = color === 'white' ? -1 : 1;
+                const startRow = color === 'white' ? 6 : 1;
+                // Standardzüge
+                if (fromCol === toCol && !isCapture) {
+                    if (toRow === fromRow + direction) return true;
+                    if (fromRow === startRow && toRow === fromRow + 2 * direction && 
+                        !board[fromRow + direction][fromCol].dataset.piece) return true;
+                }
+                // Diagonaler Schlag oder En Passant
+                if (Math.abs(toCol - fromCol) === 1 && toRow === fromRow + direction) {
+                    if (isCapture) return true;
+                    // En Passant
+                    if (enPassantTarget && enPassantTarget.row === toRow && enPassantTarget.col === toCol) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            // ... existing code ...
+            // Patch movePiece for en passant
+            const origMovePiece2 = movePiece;
+            movePiece = function(from, to) {
+                const piece = from.dataset.piece;
+                const [color, type] = piece.split('-');
+                const fromRow = parseInt(from.dataset.row);
+                const fromCol = parseInt(from.dataset.col);
+                const toRow = parseInt(to.dataset.row);
+                const toCol = parseInt(to.dataset.col);
+                // En Passant schlagen
+                if (type === 'pawn' && enPassantTarget && toRow === enPassantTarget.row && toCol === enPassantTarget.col && !to.dataset.piece) {
+                    // Entferne den gegnerischen Bauern
+                    const capturedRow = color === 'white' ? toRow + 1 : toRow - 1;
+                    const capturedPawn = board[capturedRow][toCol];
+                    capturedPawn.innerHTML = '';
+                    delete capturedPawn.dataset.piece;
+                }
+                // En Passant Ziel setzen
+                if (type === 'pawn' && Math.abs(toRow - fromRow) === 2) {
+                    enPassantTarget = { row: (fromRow + toRow) / 2, col: fromCol };
+                } else {
+                    enPassantTarget = null;
+                }
+                origMovePiece2(from, to);
+            }
+            // ... existing code ...
+
+            // ... existing code ...
+            // Hilfsfunktion: Prüft, ob ein Feld von der gegnerischen Farbe angegriffen wird
+            function isSquareAttacked(row, col, color) {
+                const opponent = color === 'white' ? 'black' : 'white';
+                for (let i = 0; i < 8; i++) {
+                    for (let j = 0; j < 8; j++) {
+                        const sq = board[i][j];
+                        const piece = sq.dataset.piece;
+                        if (!piece) continue;
+                        const [pColor, pType] = piece.split('-');
+                        if (pColor !== opponent) continue;
+                        // Temporär: simuliere einen Angriffszug
+                        if (pType === 'pawn') {
+                            if (opponent === 'white' && i - 1 === row && Math.abs(j - col) === 1) return true;
+                            if (opponent === 'black' && i + 1 === row && Math.abs(j - col) === 1) return true;
+                        } else {
+                            // Nutze isValidMove, aber verhindere Endlosschleife für König
+                            if (pType !== 'king') {
+                                if (isValidMove(sq, board[row][col], true)) return true;
+                            } else {
+                                if (Math.abs(i - row) <= 1 && Math.abs(j - col) <= 1) return true;
+                            }
+                        }
+                    }
+                }
+                return false;
+            }
+
+            // Patch isValidMove für Rochade
+            const origIsValidMove = isValidMove;
+            isValidMove = function(from, to, skipKingCheck = false) {
+                const fromPiece = from.dataset.piece || '';
+                const toPiece = to.dataset.piece || '';
+                const [fromColor, fromType] = fromPiece.split('-');
+                const [toColor, toType] = toPiece ? toPiece.split('-') : ['', ''];
+                if (!fromPiece || fromColor !== currentPlayer) return false;
+                if (toPiece && toColor === fromColor) return false;
+                if (toType === 'king') return false;
+                const fromRow = parseInt(from.dataset.row);
+                const fromCol = parseInt(from.dataset.col);
+                const toRow = parseInt(to.dataset.row);
+                const toCol = parseInt(to.dataset.col);
+                const rowDiff = toRow - fromRow;
+                const colDiff = toCol - fromCol;
+                // Rochade
+                if (fromType === 'king' && fromRow === toRow && Math.abs(colDiff) === 2) {
+                    if (!castlingRights[fromColor]) return false;
+                    if (isKingInCheck(fromColor)) return false;
+                    // Kurze Rochade
+                    if (colDiff === 2) {
+                        if (board[fromRow][5].dataset.piece || board[fromRow][6].dataset.piece) return false;
+                        const rook = board[fromRow][7];
+                        if (!rook.dataset.piece || rook.dataset.piece !== fromColor+'-rook') return false;
+                        if (!castlingRights[fromColor].kingSide) return false;
+                        if (isSquareAttacked(fromRow, 4, fromColor) || isSquareAttacked(fromRow, 5, fromColor) || isSquareAttacked(fromRow, 6, fromColor)) return false;
+                        // Simuliere Rochade und prüfe Schach
+                        const originalFromPiece = from.dataset.piece;
+                        const originalToPiece = to.dataset.piece;
+                        to.dataset.piece = from.dataset.piece;
+                        delete from.dataset.piece;
+                        const kingInCheck = isKingInCheck(fromColor);
+                        from.dataset.piece = originalFromPiece;
+                        if (originalToPiece) {
+                            to.dataset.piece = originalToPiece;
+                        } else {
+                            delete to.dataset.piece;
+                        }
+                        if (kingInCheck) return false;
+                        return true;
+                    }
+                    // Lange Rochade
+                    if (colDiff === -2) {
+                        if (board[fromRow][1].dataset.piece || board[fromRow][2].dataset.piece || board[fromRow][3].dataset.piece) return false;
+                        const rook = board[fromRow][0];
+                        if (!rook.dataset.piece || rook.dataset.piece !== fromColor+'-rook') return false;
+                        if (!castlingRights[fromColor].queenSide) return false;
+                        if (isSquareAttacked(fromRow, 4, fromColor) || isSquareAttacked(fromRow, 3, fromColor) || isSquareAttacked(fromRow, 2, fromColor)) return false;
+                        // Simuliere Rochade und prüfe Schach
+                        const originalFromPiece = from.dataset.piece;
+                        const originalToPiece = to.dataset.piece;
+                        to.dataset.piece = from.dataset.piece;
+                        delete from.dataset.piece;
+                        const kingInCheck = isKingInCheck(fromColor);
+                        from.dataset.piece = originalFromPiece;
+                        if (originalToPiece) {
+                            to.dataset.piece = originalToPiece;
+                        } else {
+                            delete to.dataset.piece;
+                        }
+                        if (kingInCheck) return false;
+                        return true;
+                    }
+                }
+                // Normale Königszüge
+                if (fromType === 'king' && Math.abs(rowDiff) <= 1 && Math.abs(colDiff) <= 1) {
+                    if (isSquareAttacked(toRow, toCol, fromColor)) return false;
+                    // Simuliere Zug und prüfe Schach
+                    const originalFromPiece = from.dataset.piece;
+                    const originalToPiece = to.dataset.piece;
+                    to.dataset.piece = from.dataset.piece;
+                    delete from.dataset.piece;
+                    const kingInCheck = isKingInCheck(fromColor);
+                    from.dataset.piece = originalFromPiece;
+                    if (originalToPiece) {
+                        to.dataset.piece = originalToPiece;
+                    } else {
+                        delete to.dataset.piece;
+                    }
+                    if (kingInCheck) return false;
+                    return true;
+                }
+                // Für alle anderen Figuren: Simuliere Zug und prüfe, ob König im Schach wäre
+                const originalFromPiece = from.dataset.piece;
+                const originalToPiece = to.dataset.piece;
+                to.dataset.piece = from.dataset.piece;
+                delete from.dataset.piece;
+                const kingInCheck = isKingInCheck(fromColor);
+                from.dataset.piece = originalFromPiece;
+                if (originalToPiece) {
+                    to.dataset.piece = originalToPiece;
+                } else {
+                    delete to.dataset.piece;
+                }
+                if (kingInCheck) return false;
+                // Rest wie bisher
+                return origIsValidMove(from, to);
+            }
+
+            // Patch movePiece für Rochade
+            // Nur eine Deklaration von origMovePiece2!
+            if (!window._rochadePatchApplied) {
+                const origMovePiece2 = movePiece;
+                movePiece = function(from, to) {
+                    const piece = from.dataset.piece;
+                    const [color, type] = piece.split('-');
+                    const fromRow = parseInt(from.dataset.row);
+                    const fromCol = parseInt(from.dataset.col);
+                    const toRow = parseInt(to.dataset.row);
+                    const toCol = parseInt(to.dataset.col);
+                    // Rochade
+                    if (type === 'king' && fromRow === toRow && Math.abs(toCol - fromCol) === 2) {
+                        // Kurze Rochade
+                        if (toCol === 6) {
+                            to.innerHTML = pieces[color]['king'];
+                            to.dataset.piece = color+'-king';
+                            from.innerHTML = '';
+                            delete from.dataset.piece;
+                            const rookFrom = board[fromRow][7];
+                            const rookTo = board[fromRow][5];
+                            rookTo.innerHTML = pieces[color]['rook'];
+                            rookTo.dataset.piece = color+'-rook';
+                            rookFrom.innerHTML = '';
+                            delete rookFrom.dataset.piece;
+                            castlingRights[color].kingSide = false;
+                            castlingRights[color].queenSide = false;
+                            addMoveToHistory(color, 'king', fromRow, fromCol, toRow, toCol, false, 'O-O');
+                        }
+                        // Lange Rochade
+                        else if (toCol === 2) {
+                            to.innerHTML = pieces[color]['king'];
+                            to.dataset.piece = color+'-king';
+                            from.innerHTML = '';
+                            delete from.dataset.piece;
+                            const rookFrom = board[fromRow][0];
+                            const rookTo = board[fromRow][3];
+                            rookTo.innerHTML = pieces[color]['rook'];
+                            rookTo.dataset.piece = color+'-rook';
+                            rookFrom.innerHTML = '';
+                            delete rookFrom.dataset.piece;
+                            castlingRights[color].kingSide = false;
+                            castlingRights[color].queenSide = false;
+                            addMoveToHistory(color, 'king', fromRow, fromCol, toRow, toCol, false, 'O-O-O');
+                        }
+                        const nextPlayer = currentPlayer === 'white' ? 'black' : 'white';
+                        currentPlayer = nextPlayer;
+                        updateMessage();
+                        startTimer();
+                        return;
+                    }
+                    if (type === 'king') {
+                        castlingRights[color].kingSide = false;
+                        castlingRights[color].queenSide = false;
+                    }
+                    if (type === 'rook') {
+                        if (fromCol === 0) castlingRights[color].queenSide = false;
+                        if (fromCol === 7) castlingRights[color].kingSide = false;
+                    }
+                    origMovePiece2(from, to);
+                }
+                window._rochadePatchApplied = true;
+            }
+            // ... existing code ...
+
+            // ... existing code ...
+            // KI-Zug-Markierung
+            let lastAIMoveSquare = null;
+            function highlightAIMove(square) {
+                if (lastAIMoveSquare) {
+                    lastAIMoveSquare.classList.remove('ai-move');
+                }
+                if (square) {
+                    square.classList.add('ai-move');
+                    lastAIMoveSquare = square;
+                }
+            }
+            // ... existing code ...
+
+            function highlightLastAIMove(move) {
+                // Remove previous highlights
+                document.querySelectorAll('.last-ai-move').forEach(el => {
+                    el.classList.remove('last-ai-move');
+                });
+
+                // Add highlight to both source and target squares
+                const sourceSquare = document.querySelector(`[data-square="${move.from}"]`);
+                const targetSquare = document.querySelector(`[data-square="${move.to}"]`);
+                
+                if (sourceSquare) sourceSquare.classList.add('last-ai-move');
+                if (targetSquare) targetSquare.classList.add('last-ai-move');
+            }
         });
 
         // Board color state
@@ -2593,11 +2977,11 @@
                 ['white-pawn', 'white-pawn', 'white-pawn', 'white-pawn', 'white-pawn', 'white-pawn', 'white-pawn', 'white-pawn'],
                 ['white-rook', 'white-knight', 'white-bishop', 'white-queen', 'white-king', 'white-bishop', 'white-knight', 'white-rook']
             ];
-            for (let i = 0; i < 8; i++) {
+                for (let i = 0; i < 8; i++) {
                 const row = document.createElement('div');
                 row.className = 'row';
                 const boardRow = [];
-                for (let j = 0; j < 8; j++) {
+                    for (let j = 0; j < 8; j++) {
                     const square = document.createElement('div');
                     square.className = `square ${(i + j) % 2 === 0 ? 'white' : 'black'}`;
                     square.dataset.row = i;
@@ -2609,7 +2993,7 @@
                         const [color, type] = pieceInfo.split('-');
                         square.innerHTML = pieces[color][type];
                         square.dataset.piece = pieceInfo;
-                    } else {
+                        } else {
                         square.innerHTML = '';
                     }
                     square.addEventListener('click', handleSquareClick);
@@ -2621,15 +3005,15 @@
             }
             if (playerColor === 'black' && playAgainstComputer.checked) {
                 currentPlayer = 'white';
-                updateMessage();
+                        updateMessage();
                 initTimers();
-                startTimer();
+                        startTimer();
                 setTimeout(makeComputerMove, 500);
-            } else {
+                } else {
                 currentPlayer = 'white';
-                updateMessage();
+                        updateMessage();
                 initTimers();
-                startTimer();
+                        startTimer();
             }
         }
 
@@ -2671,12 +3055,12 @@
                     gameContainer.classList.add('fullscreen-active');
                     // Timer immer anzeigen im Vollbild
                     timerContainer.style.display = 'flex';
-                } else {
+                        } else {
                     gameContainer.classList.remove('fullscreen-active');
                     // Timer nur anzeigen, wenn Spiel läuft
                     if (gameInProgress) {
                         timerContainer.style.display = 'flex';
-                    } else {
+                            } else {
                         timerContainer.style.display = 'none';
                     }
                 }
